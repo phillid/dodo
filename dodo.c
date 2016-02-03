@@ -39,10 +39,16 @@ enum Command {
     QUIT
 };
 
+enum Mode {
+    ABSOLUTE,
+    RELATIVE
+};
+
 /* interpretation depends on Command */
 struct Argument {
     /* either numeric argument OR length of string */
     int num;
+    enum Mode mode;
     char *str;
 };
 
@@ -264,6 +270,17 @@ struct Instruction * parse_number(struct Instruction *i, char *source, size_t *i
     if( ! sscanf(&(source[*index]), "%d", &(i->argument.num)) ){
         puts("parse_number: failed to read in number");
         return 0;
+    }
+
+    switch( source[*index] ){
+        case '+':
+        case '-':
+            i->argument.mode = RELATIVE;
+            ++(*index);
+            break;
+        default:
+            i->argument.mode = ABSOLUTE;
+            break;
     }
 
     /* advance past number */
@@ -754,7 +771,11 @@ int eval_byte(struct Program *p, struct Instruction *cur){
     /* byte number argument to seek to */
     int byte = 0;
 
-    byte = cur->argument.num;
+    if( cur->argument.mode == ABSOLUTE ){
+        byte = cur->argument.num;
+    } else {
+        byte = p->offset + cur->argument.num;
+    }
 
     if( fseek(p->file, byte, SEEK_SET) ){
         puts("eval_byte: fseek failed");
