@@ -406,11 +406,6 @@ struct Instruction * parse_line(char *source, size_t *index){
 
     ret = parse_number(i, source, index);
 
-    if( i->argument.num == 0 ){
-        puts("parse_line: line number must be > 0\n");
-        ret = 0;
-    }
-
     if( ret == 0 ){
         free(i);
     }
@@ -786,41 +781,105 @@ int eval_byte(struct Program *p, struct Instruction *cur){
     return 0;
 }
 
-int eval_line(struct Program *p, struct Instruction *cur){
+int eval_line_forward(struct Program *p, struct Instruction *cur){
     char buffer[1024];
+    int sought = 0;
     int observed = 0;
     int i = 0;
     size_t nread = 0;
 
-    /* first things first; seek to start of file */
-    if( fseek(p->file, 0, SEEK_SET) ){
-        puts("eval_line: fseek failed");
-        return 1;
-    }
-    p->offset = 0;
-
-    /* nothing more to be done if line 1 was requested */
-    if( cur->argument.num == 1 ){
-        return 0;
+    if( cur->argument.mode == ABSOLUTE ){
+        if( cur->argument.num <= 1 ){
+            return 0; /* nothing to do, we are here already */
+        }
+        sought = cur->argument.num - 1;
+    } else {
+        if( cur->argument.num == 0 ){
+            return 0;
+        }
+        sought = cur->argument.num;
     }
 
     while( (nread = fread(buffer, 1, sizeof(buffer), p->file)) ){
         for( i = 0; i < nread; i++ ){
-            if( buffer[i] == '\n' && ++observed >= cur->argument.num - 1 ){
-                /* +1 to skip over \n */
-                p->offset += i + 1;
-                if( fseek(p->file, p->offset, SEEK_SET) ){
-                    puts("eval_line: fseek failed");
-                    return 1;
+            if( buffer[i] == '\n' ){
+                if ( ++observed >= sought ){
+                    /* +1 to skip over \n */
+                    p->offset += i + 1;
+                    if( fseek(p->file, p->offset, SEEK_SET) ){
+                        puts("eval_line_forward: fseek failed");
+                        return 1;
+                    }
+                    return 0;
                 }
-                return 0;
             }
         }
         p->offset += nread;
     }
-
-    printf("eval_line: read error before reaching line %d\n", cur->argument.num);
+    puts("eval_line_forward: reached EOF before requested line");
     return 1;
+}
+
+int eval_line_backward(struct Program *p, struct Instruction *cur){
+    char buffer[1024];
+    int sought = 0;
+    int observed = 0;
+    int i = 0;
+    size_t nread = 0;
+
+    sought = abs(cur->argument.num) + 1;
+
+    while( p->offset > 0 ){
+        if( ftell(p->file) < sizeof(buffer) ){
+            rewind(p->file);
+        } else {
+            if( fseek(p->file, -sizeof(buffer), SEEK_CUR) ){
+                puts("eval_line_backward: fseek failed");
+                return 1;
+            }
+        }
+
+        nread = fread(buffer, 1, sizeof(buffer), p->file);
+        if( nread == 0 ){
+            break;
+        }
+
+        for( i = nread-1; i > 0; i-- ){
+            if( buffer[i] == '\n' ){
+                if ( ++observed >= sought ){
+                    /* +1 to skip over \n */
+                    p->offset -= nread - i - 1;
+                    if( fseek(p->file, p->offset, SEEK_SET) ){
+                        puts("eval_line_backward: fseek failed");
+                        return 1;
+                    }
+                    return 0;
+                }
+            }
+        }
+        p->offset -= nread;
+    }
+    puts("eval_line_backward: reached start of file before requested line");
+    return 1;
+}
+
+int eval_line(struct Program *p, struct Instruction *cur){
+    int ret = 0;
+    if( cur->argument.mode == ABSOLUTE ){
+        /* first things first; seek to start of file */
+        if( fseek(p->file, 0, SEEK_SET) ){
+            puts("eval_line: fseek failed");
+            return 1;
+        }
+        p->offset = 0;
+    }
+
+    if( cur->argument.num < 0 ){
+        ret = eval_line_backward(p, cur);
+    } else {
+        ret = eval_line_forward(p, cur);
+    }
+    return ret;
 }
 
 /* eval EXPECT command
