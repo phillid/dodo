@@ -699,7 +699,7 @@ EXIT:
     /* null terminator for program */
     *store = 0;
 
-    return 0;   
+    return 0;
 }
 
 
@@ -769,12 +769,10 @@ int eval_print(struct Program *p, struct Instruction *cur){
  */
 int eval_byte(struct Program *p, struct Instruction *cur){
     /* byte number argument to seek to */
-    int byte = 0;
+    int byte = cur->argument.num;
 
-    if( cur->argument.mode == ABSOLUTE ){
-        byte = cur->argument.num;
-    } else {
-        byte = p->offset + cur->argument.num;
+    if( cur->argument.mode == RELATIVE ){
+        byte += p->offset;
     }
 
     if( fseek(p->file, byte, SEEK_SET) ){
