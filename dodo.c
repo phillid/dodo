@@ -767,29 +767,15 @@ int eval_print(struct Program *p, struct Instruction *cur){
  * failure will cause program to halt
  */
 int eval_byte(struct Program *p, struct Instruction *cur){
-    /* byte number argument to seek to */
-    int byte = 0;
-    /* whence argument to fseek
-     * if absolute then SEEK_SET
-     * if relative then SEEK_CUR
-     */
-    int whence = 0;
-
-    if( cur->argument.mode == RELATIVE ){
-        byte += p->offset;
-    }
-
     switch( cur->argument.mode ){
       case ABSOLUTE:
-        whence = SEEK_SET;
         /* update file offset */
-        p->offset = byte;
+        p->offset = cur->argument.num;
         break;
 
       case RELATIVE:
-        whence = SEEK_CUR;
         /* update file offset */
-        p->offset += byte;
+        p->offset += cur->argument.num;
         break;
 
       default:
@@ -798,7 +784,7 @@ int eval_byte(struct Program *p, struct Instruction *cur){
         break;
     }
 
-    if( fseek(p->file, byte, whence) ){
+    if( fseek(p->file, p->offset, SEEK_SET) ){
         puts("eval_byte: fseek failed");
         return 1;
     }
