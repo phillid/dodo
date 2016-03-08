@@ -849,29 +849,42 @@ int eval_line_backward(struct Program *p, struct Instruction *cur){
     int i = 0;
     size_t nread = 0;
 
+    /* plus one so we walk over newline at beginning of current line too */
     sought = abs(cur->argument.num) + 1;
 
-    while( p->offset > 0 ){
-        if( ftell(p->file) < sizeof(buffer) ){
+    do {
+        /* fill buffer only as far as leading file data will allow us */
+        if( p->offset < sizeof(buffer) ){
             rewind(p->file);
+            nread = fread(buffer, 1, p->offset, p->file);
         } else {
-            if( fseek(p->file, -sizeof(buffer), SEEK_CUR) ){
+            if( fseek(p->file, -sizeof(buffer), SEEK_CUR) < 0 ){
                 puts("eval_line_backward: fseek failed");
                 return 1;
             }
+            nread = fread(buffer, 1, sizeof(buffer), p->file);
         }
 
-        nread = fread(buffer, 1, sizeof(buffer), p->file);
-        if( nread == 0 ){
-            break;
+        /* undo stream thingy positioning fread did */
+        if( fseek(p->file, -nread, SEEK_CUR) < 0 ){
+            puts("eval_line_backward: fseek failed");
+            return 1;
         }
 
-        for( i = nread-1; i > 0; i-- ){
-            if( buffer[i] == '\n' ){
-                if ( ++observed >= sought ){
-                    /* +1 to skip over \n */
-                    p->offset -= nread - i - 1;
-                    if( fseek(p->file, p->offset, SEEK_SET) ){
+        for( i = nread-1; i >= 0; i-- ){
+            if( buffer[i] == '\n' || (nread < sizeof(buffer) && i == 0) ){
+                observed++;
+                if( observed >= sought ){
+                    /* if we hit the start of the file, we have to kick
+                     * to zero, not jump one position ahead of carriage
+                     * return */
+                    if( p->offset < sizeof(buffer) && i == 0 ){
+                        p->offset = 0;
+                    } else {
+                        /* minus one to jump to byte after carraige return */
+                        p->offset -= nread - i - 1;
+                    }
+                    if( fseek(p->file, p->offset, SEEK_SET) < 0 ){
                         puts("eval_line_backward: fseek failed");
                         return 1;
                     }
@@ -880,8 +893,8 @@ int eval_line_backward(struct Program *p, struct Instruction *cur){
             }
         }
         p->offset -= nread;
-    }
-    puts("eval_line_backward: reached start of file before requested line");
+    } while( p->offset > 0 );
+    puts("eval_line_backward: reached beginning of file before requested line");
     return 1;
 }
 
