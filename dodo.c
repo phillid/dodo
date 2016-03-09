@@ -1211,6 +1211,8 @@ void usage(void){
          "  w/str/    # write <str> to current position\n"
          "  q         # quit editing\n"
          "  # used for commenting out rest of line\n"
+         "the byte and line commands may be used relative to the current cursor position\n"
+         "by prefixing <n> with a + for forward-relative, or a - for back-relative usage\n"
     );
 }
 
