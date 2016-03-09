@@ -66,8 +66,15 @@ print specified number of bytes, if number is not specified will default to 100
 .IP "\fIline\fR"
 .br
 lnumber
+.br
+l+relative
+.br
+l-relative
 
 place cursor at the start of line 'number', lines are 0-based
+Prefix the number with a plus (+) or minus (-) to make this command act relative
+to the current cursor position. A plus will result in forward-relative cursor
+positioning while a minus will result in back-relative.
 Warning: this may be expensive in large files
 .IR
 .IP "\fIexpect\fR"
@@ -80,8 +87,18 @@ expect does not move the cursor.
 .IP "\fIbyte\fR"
 .br
 bnumber
+.br
+b+relative
+.br
+b-relative
 
 move cursor to absolute byte 'number' within file, bytes are 0-based
+Prefix the number with a plus (+) or minus (-) to make this command act relative
+to the current cursor position. A plus will result in forward-relative cursor
+positioning while a minus will result in back-relative.
+
+
+
 .IR
 .IP "\fIwrite\fR"
 .br

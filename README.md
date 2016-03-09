@@ -76,6 +76,9 @@ print specified number of bytes, if number is not specified will default to 100
 	lnumber
 
 place cursor at the start of line 'number', lines are 0-based
+Prefix the number with a plus (+) or minus (-) to make this command act relative
+to the current cursor position. A plus will result in forward-relative cursor
+positioning while a minus will result in back-relative.
 Warning: this may be expensive in large files
 
 
@@ -91,8 +94,13 @@ expect does not move the cursor.
 **byte:**
 
     bnumber
+    b+relative
+    b-relative
 
 move cursor to absolute byte 'number' within file, bytes are 0-based
+Prefix the number with a plus (+) or minus (-) to make this command act relative
+to the current cursor position. A plus will result in forward-relative cursor
+positioning while a minus will result in back-relative.
 
 
 **write:**
