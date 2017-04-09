@@ -999,6 +999,7 @@ int eval_truncate(struct Program *p, struct Instruction *cur){
  *
  * returns 0 on success
  * returns 1 on failure
+ * failure will cause program to halt
  */
 int eval_set_cursor(struct Program *p, struct Instruction *cur){
     size_t cursor = cur->argument.num;
@@ -1010,6 +1011,12 @@ int eval_set_cursor(struct Program *p, struct Instruction *cur){
 
     /* update active cursor */
     p->active_cursor = cursor;
+
+    /* seek to reflect changed cursor */
+    if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
+        perror("eval_set_cursor: fseek failed");
+        return 1;
+    }
 
     return 0;
 }
