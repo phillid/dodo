@@ -34,6 +34,9 @@ enum Command {
     /* truncates file at cursor position
      */
     TRUNCATE,
+    /* takes integer
+     * sets which cursor is the one to use for commands that follow */
+    SET_CURSOR,
     /* exits with code EXIT_SUCCESS
      */
     QUIT
@@ -63,8 +66,10 @@ struct Program {
     char* path;
     /* file program is operating on */
     FILE *file;
-    /* current offset into file */
-    int offset;
+    /* array of current offsets into the file (i.e. cursors) */
+    int offset[32];
+    /* index of currently active offset/cursor to use for commands */
+    size_t active_cursor;
     /* program source read into a buffer */
     char *source;
     /* shared buffer (and length) used for reading into */
@@ -728,7 +733,7 @@ int eval_print(struct Program *p, struct Instruction *cur){
     buf[nr] = '\0';
 
     /* seek back to previous position */
-    if( fseek(p->file, p->offset, SEEK_SET) ){
+    if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
         puts("eval_print: fseek failed");
         return 1;
     }
@@ -762,7 +767,7 @@ int eval_byte(struct Program *p, struct Instruction *cur){
     }
 
     /* update file offset */
-    p->offset = byte;
+    p->offset[p->active_cursor] = byte;
 
     return 0;
 }
@@ -778,7 +783,7 @@ int eval_line(struct Program *p, struct Instruction *cur){
         puts("eval_line: fseek failed");
         return 1;
     }
-    p->offset = 0;
+    p->offset[p->active_cursor] = 0;
 
     /* nothing more to be done if line 1 was requested */
     if( cur->argument.num == 1 ){
@@ -789,15 +794,15 @@ int eval_line(struct Program *p, struct Instruction *cur){
         for( i = 0; i < nread; i++ ){
             if( buffer[i] == '\n' && ++observed >= cur->argument.num - 1 ){
                 /* +1 to skip over \n */
-                p->offset += i + 1;
-                if( fseek(p->file, p->offset, SEEK_SET) ){
+                p->offset[p->active_cursor] += i + 1;
+                if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
                     puts("eval_line: fseek failed");
                     return 1;
                 }
                 return 0;
             }
         }
-        p->offset += nread;
+        p->offset[p->active_cursor] += nread;
     }
 
     printf("eval_line: read error before reaching line %d\n", cur->argument.num);
@@ -847,7 +852,7 @@ int eval_expect(struct Program *p, struct Instruction *cur){
     buf[nr] = '\0';
 
     /* seek back to previous position */
-    if( fseek(p->file, p->offset, SEEK_SET) ){
+    if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
         puts("eval_expect: fseek failed");
         return 1;
     }
@@ -909,10 +914,10 @@ int eval_write(struct Program *p, struct Instruction *cur){
     }
 
     /* update file offset to be at end of write */
-    p->offset += nw;
+    p->offset[p->active_cursor] += nw;
 
     /* seek to end of write */
-    if( fseek(p->file, p->offset, SEEK_SET) ){
+    if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
         puts("eval_write: fseek failed");
         return 1;
     }
@@ -933,7 +938,7 @@ int eval_write(struct Program *p, struct Instruction *cur){
  * failure will cause program to halt
  */
 int eval_truncate(struct Program *p, struct Instruction *cur){
-    if( truncate(p->path, p->offset) == -1 ){
+    if( truncate(p->path, p->offset[p->active_cursor]) == -1 ){
         perror("eval_truncate: error in call to truncate");
         return 1;
     }
@@ -1040,7 +1045,7 @@ int repl(struct Program *p){
     char line[4096]; /* FIXME: Perhaps use slurp-like behaviour instead */
 
     while( 1 ){
-        printf("dodo [%d]: ", p->offset);
+        printf("dodo [%d]: ", p->offset[p->active_cursor]);
         p->source = fgets(line, sizeof(line), stdin);
 
         if( ! p->source ){
