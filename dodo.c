@@ -59,6 +59,8 @@ struct Instruction {
     struct Instruction *next;
 };
 
+#define CURSOR_COUNT 32
+
 struct Program {
     /* linked list of Instruction(s) */
     struct Instruction *start;
@@ -67,7 +69,7 @@ struct Program {
     /* file program is operating on */
     FILE *file;
     /* array of current offsets into the file (i.e. cursors) */
-    int offset[32];
+    int offset[CURSOR_COUNT];
     /* index of currently active offset/cursor to use for commands */
     size_t active_cursor;
     /* program source read into a buffer */
@@ -520,6 +522,38 @@ struct Instruction * parse_quit(char *source, size_t *index){
     return i;
 }
 
+struct Instruction * parse_set_cursor(char *source, size_t *index){
+    struct Instruction *ret = 0;
+    struct Instruction *i = 0;
+
+    i = new_instruction(SET_CURSOR);
+    if( ! i ){
+        puts("parse_set_cursor: call to new_instruction failed");
+        return 0;
+    }
+
+    /* cn where n is positive integer */
+    switch( source[*index] ){
+        case 'c':
+        case 'C':
+            ++(*index);
+            break;
+        default:
+            printf("parse_set_cursor: unexpected character '%c', expected 'b'\n", source[*index]);
+            free(i);
+            return 0;
+            break;
+    }
+
+    ret = parse_number(i, source, index);
+    if( ret == 0 ){
+        free(i);
+    }
+
+    return ret;
+}
+
+
 /* consume comment from source
  * return 0 on success
  * return 1 on error
@@ -640,6 +674,17 @@ int parse(struct Program *program){
                 res = parse_truncate(source, &index);
                 if( ! res ){
                     puts("Parse: failed in call to parse_truncate");
+                    return 1;
+                }
+                *store = res;
+                store = &(res->next);
+                break;
+
+            case 'c':
+            case 'C':
+                res = parse_set_cursor(source, &index);
+                if( ! res ){
+                    puts("parse: failed in call to parse_set_cursor");
                     return 1;
                 }
                 *store = res;
@@ -945,6 +990,30 @@ int eval_truncate(struct Program *p, struct Instruction *cur){
     return 0;
 }
 
+/* eval SET_CURSOR command
+ * set the cursor to be used for following commands
+ *
+ *  c12
+ *
+ * uses cur->argument.num
+ *
+ * returns 0 on success
+ * returns 1 on failure
+ */
+int eval_set_cursor(struct Program *p, struct Instruction *cur){
+    size_t cursor = cur->argument.num;
+
+    if( cursor < 0 || cursor >= CURSOR_COUNT ){
+        printf("eval_set_cursor: no such cursor number %zd", cursor);
+        return 1;
+    }
+
+    /* update active cursor */
+    p->active_cursor = cursor;
+
+    return 0;
+}
+
 /* execute provided Program
  * return 0 on success
  * return 1 on failure
@@ -1000,6 +1069,13 @@ int execute(struct Program *p){
 
             case TRUNCATE:
                 ret = eval_truncate(p, cur);
+                if( ret ){
+                    return ret;
+                }
+                break;
+
+            case SET_CURSOR:
+                ret = eval_set_cursor(p, cur);
                 if( ret ){
                     return ret;
                 }
