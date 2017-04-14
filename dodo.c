@@ -35,8 +35,11 @@ enum Command {
      */
     TRUNCATE,
     /* takes integer
-     * sets which cursor is the one to use for commands that follow */
+     * adds cursor to set cursors to be used for commands */
     SET_CURSOR,
+    /* takes integer
+     * removes cursor from set of cusors to be used for commands */
+    UNSET_CURSOR,
     /* exits with code EXIT_SUCCESS
      */
     QUIT
@@ -59,7 +62,7 @@ struct Instruction {
     struct Instruction *next;
 };
 
-#define CURSOR_COUNT 32
+#define CURSOR_MAX 256
 
 struct Program {
     /* linked list of Instruction(s) */
@@ -69,9 +72,9 @@ struct Program {
     /* file program is operating on */
     FILE *file;
     /* array of current offsets into the file (i.e. cursors) */
-    int offset[CURSOR_COUNT];
-    /* index of currently active offset/cursor to use for commands */
-    size_t active_cursor;
+    int offset[CURSOR_MAX];
+    /* count of cursor offsets set in the file */
+    int cursor_count;
     /* program source read into a buffer */
     char *source;
     /* shared buffer (and length) used for reading into */
@@ -539,7 +542,7 @@ struct Instruction * parse_set_cursor(char *source, size_t *index){
             ++(*index);
             break;
         default:
-            printf("parse_set_cursor: unexpected character '%c', expected 'b'\n", source[*index]);
+            printf("parse_set_cursor: unexpected character '%c', expected 'c'\n", source[*index]);
             free(i);
             return 0;
             break;
@@ -551,6 +554,31 @@ struct Instruction * parse_set_cursor(char *source, size_t *index){
     }
 
     return ret;
+}
+
+struct Instruction * parse_unset_cursor(char *source, size_t *index){
+    struct Instruction *i = 0;
+
+    switch( source[*index] ){
+        case 'u':
+        case 'U':
+            /* advance past letter */
+            ++(*index);
+            break;
+
+        default:
+            printf("parse_unset_cursor: unexpected character '%c', expected 'u'\n", source[*index]);
+            return 0;
+    }
+
+
+    i = new_instruction(UNSET_CURSOR);
+    if( ! i ){
+        puts("parse_unset_cursor: call to new_instruction failed");
+        return 0;
+    }
+
+    return i;
 }
 
 
@@ -691,6 +719,17 @@ int parse(struct Program *program){
                 store = &(res->next);
                 break;
 
+            case 'u':
+            case 'U':
+                res = parse_unset_cursor(source, &index);
+                if( ! res ){
+                    puts("parse: failed in call to parse_unset_cursor");
+                    return 1;
+                }
+                *store = res;
+                store = &(res->next);
+                break;
+
             case 'q':
             case 'Q':
                 res = parse_quit(source, &index);
@@ -777,12 +816,6 @@ int eval_print(struct Program *p, struct Instruction *cur){
     /* make sure buffer is really a string */
     buf[nr] = '\0';
 
-    /* seek back to previous position */
-    if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
-        puts("eval_print: fseek failed");
-        return 1;
-    }
-
     /* print buffer, as instructed */
     printf("'%s'\n", buf);
 
@@ -806,13 +839,10 @@ int eval_byte(struct Program *p, struct Instruction *cur){
 
     byte = cur->argument.num;
 
-    if( fseek(p->file, byte, SEEK_SET) ){
-        puts("eval_byte: fseek failed");
-        return 1;
-    }
+    p->cursor_count = 0;
 
     /* update file offset */
-    p->offset[p->active_cursor] = byte;
+    p->offset[p->cursor_count++] = byte;
 
     return 0;
 }
@@ -822,13 +852,14 @@ int eval_line(struct Program *p, struct Instruction *cur){
     int observed = 0;
     int i = 0;
     size_t nread = 0;
+    size_t cursor = 0;
 
     /* first things first; seek to start of file */
     if( fseek(p->file, 0, SEEK_SET) ){
         puts("eval_line: fseek failed");
         return 1;
     }
-    p->offset[p->active_cursor] = 0;
+    p->offset[cursor] = 0;
 
     /* nothing more to be done if line 1 was requested */
     if( cur->argument.num == 1 ){
@@ -839,15 +870,15 @@ int eval_line(struct Program *p, struct Instruction *cur){
         for( i = 0; i < nread; i++ ){
             if( buffer[i] == '\n' && ++observed >= cur->argument.num - 1 ){
                 /* +1 to skip over \n */
-                p->offset[p->active_cursor] += i + 1;
-                if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
+                p->offset[cursor] += i + 1;
+                if( fseek(p->file, p->offset[cursor], SEEK_SET) ){
                     puts("eval_line: fseek failed");
                     return 1;
                 }
                 return 0;
             }
         }
-        p->offset[p->active_cursor] += nread;
+        p->offset[cursor] += nread;
     }
 
     printf("eval_line: read error before reaching line %d\n", cur->argument.num);
@@ -875,6 +906,8 @@ int eval_expect(struct Program *p, struct Instruction *cur){
     char *buf = 0;
     /* num bytes read */
     size_t nr = 0;
+    /* cursor */
+    size_t cursor = 0;
 
     str = cur->argument.str;
     if( ! str ){
@@ -891,31 +924,33 @@ int eval_expect(struct Program *p, struct Instruction *cur){
         return 1;
     }
 
-    /* perform read */
-    nr = fread(buf, 1, len, p->file);
-    /* make sure buffer is really a string */
-    buf[nr] = '\0';
+    for( cursor = 0; cursor < p->cursor_count; cursor++  ){
+        /* seek to cursor position */
+        if( fseek(p->file, p->offset[cursor], SEEK_SET) ){
+            puts("eval_expect: fseek failed");
+            return 1;
+        }
 
-    /* seek back to previous position */
-    if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
-        puts("eval_expect: fseek failed");
-        return 1;
-    }
+        /* perform read */
+        nr = fread(buf, 1, len, p->file);
+        /* make sure buffer is really a string */
+        buf[nr] = '\0';
 
-    /* compare number read to expected len */
-    if( nr != len ){
-        /* FIXME consider output when expect fails */
-        printf("eval_expect: expected to read '%zu' bytes, actually read '%zu'\n", len, nr);
-        return 1;
-    }
+        /* compare number read to expected len */
+        if( nr != len ){
+            /* FIXME consider output when expect fails */
+            printf("eval_expect: expected to read '%zu' bytes, actually read '%zu'\n", len, nr);
+            return 1;
+        }
 
-    /* compare read string to expected str */
-    if( strncmp(str, buf, len) ){
-        /* add terminating \0 to allow printf-ing */
-        str[len] = '\0';
-        /* FIXME consider output when expect fails */
-        printf("eval_expect: expected string '%s', got '%s'\n", str, buf);
-        return 1;
+        /* compare read string to expected str */
+        if( strncmp(str, buf, len) ){
+            /* add terminating \0 to allow printf-ing */
+            str[len] = '\0';
+            /* FIXME consider output when expect fails */
+            printf("eval_expect: expected string '%s', got '%s'\n", str, buf);
+            return 1;
+        }
     }
 
     return 0;
@@ -940,6 +975,8 @@ int eval_write(struct Program *p, struct Instruction *cur){
     size_t len = 0;
     /* number of bytes written */
     size_t nw = 0;
+    /* cursor */
+    size_t cursor = 0;
 
     str = cur->argument.str;
     if( ! str ){
@@ -949,22 +986,24 @@ int eval_write(struct Program *p, struct Instruction *cur){
 
     len = cur->argument.num;
 
-    /* perform write */
-    nw = fwrite(str, 1, len, p->file);
+     /* update file offset to be at end of write */
+    for( cursor = 0; cursor < p->cursor_count; cursor++ ){
+        /* seek to cursor */
+        if( fseek(p->file, p->offset[cursor], SEEK_SET) ){
+            perror("eval_write: fseek");
+            return 1;
+        }
 
-    /* check length */
-    if( nw != len ){
-        printf("eval_write: expected to write '%zu' bytes, actually wrote '%zu'\n", len, nw);
-        return 1;
-    }
+        /* perform write */
+        nw = fwrite(str, 1, len, p->file);
 
-    /* update file offset to be at end of write */
-    p->offset[p->active_cursor] += nw;
+        /* check length */
+        if( nw != len ){
+            printf("eval_write: expected to write '%zu' bytes, actually wrote '%zu'\n", len, nw);
+            return 1;
+        }
 
-    /* seek to end of write */
-    if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
-        puts("eval_write: fseek failed");
-        return 1;
+        p->offset[cursor] += nw;
     }
 
     /* flush file */
@@ -983,7 +1022,13 @@ int eval_write(struct Program *p, struct Instruction *cur){
  * failure will cause program to halt
  */
 int eval_truncate(struct Program *p, struct Instruction *cur){
-    if( truncate(p->path, p->offset[p->active_cursor]) == -1 ){
+    /* FIXME how to deal with truncation at multiple cursors? */
+    if( p->cursor_count != 1 ){
+        puts("FIXME cursor truncation yo");
+        return 1;
+    }
+
+    if( truncate(p->path, p->offset[0]) == -1 ){
         perror("eval_truncate: error in call to truncate");
         return 1;
     }
@@ -991,7 +1036,7 @@ int eval_truncate(struct Program *p, struct Instruction *cur){
 }
 
 /* eval SET_CURSOR command
- * set the cursor to be used for following commands
+ * adds cursor to set to be used for following commands
  *
  *  c12
  *
@@ -1002,21 +1047,30 @@ int eval_truncate(struct Program *p, struct Instruction *cur){
  * failure will cause program to halt
  */
 int eval_set_cursor(struct Program *p, struct Instruction *cur){
-    size_t cursor = cur->argument.num;
+    size_t offset = cur->argument.num;
 
-    if( cursor < 0 || cursor >= CURSOR_COUNT ){
-        printf("eval_set_cursor: no such cursor number %zd", cursor);
-        return 1;
+    /* FIXME actually make space in cursor list rather than bailing */
+    if( p->cursor_count >= CURSOR_MAX ){
+        puts("FIXME max cursor count exceeded");
     }
 
-    /* update active cursor */
-    p->active_cursor = cursor;
+    /* add cursor to list */
+    p->offset[p->cursor_count++] = offset;
 
-    /* seek to reflect changed cursor */
-    if( fseek(p->file, p->offset[p->active_cursor], SEEK_SET) ){
-        perror("eval_set_cursor: fseek failed");
-        return 1;
-    }
+    return 0;
+}
+
+/* eval UNSET_CURSOR command
+ * removes all cursors and resets to one cursor at beginning of file
+ *
+ *  u
+ *
+ * returns 0 on success
+ * returns 1 on failure
+ * failure will cause program to halt
+ */
+int eval_unset_cursor(struct Program *p, struct Instruction *cur){
+    p->cursor_count = 0;
 
     return 0;
 }
@@ -1030,6 +1084,9 @@ int execute(struct Program *p){
     struct Instruction *cur = 0;
     /* return code from individual eval_ calls */
     int ret = 0;
+
+    /* initialise program with one cursor */
+    p->cursor_count = 1;
 
     if( !p ){
         puts("execute: called with null program");
@@ -1088,6 +1145,13 @@ int execute(struct Program *p){
                 }
                 break;
 
+            case UNSET_CURSOR:
+                ret = eval_unset_cursor(p, cur);
+                if( ret ){
+                    return ret;
+                }
+                break;
+
             case QUIT:
                 /* explicit quit, return -1 */
                 return -1;
@@ -1128,7 +1192,8 @@ int repl(struct Program *p){
     char line[4096]; /* FIXME: Perhaps use slurp-like behaviour instead */
 
     while( 1 ){
-        printf("dodo [%d]: ", p->offset[p->active_cursor]);
+        /* FIXME shoud list cursor positions rather than count */
+        printf("dodo [%d cursor(s)]: ", p->cursor_count);
         p->source = fgets(line, sizeof(line), stdin);
 
         if( ! p->source ){

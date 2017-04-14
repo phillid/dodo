@@ -1,17 +1,18 @@
-c5
-e/hello/
-b2
-
-c0
+# check we have a cursor at 0 on starting
 e/hello/
 
-c5
-b0
+u
 
-c0
-b7
+# check addition of cursor onto blank slate
+c3
+e/lo/
+
+u
+
+c7
 e/world/
 w/there/
 
-c5
+b0
+e/hello,/
 w/oh, hi/
