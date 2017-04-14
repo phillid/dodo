@@ -69,13 +69,14 @@ dodo currently supports the following commands and syntax:
     p
     pnumber
 
-print specified number of bytes, if number is not specified will default to 100
+<del>print specified number of bytes, if number is not specified will default to 100</del>
+Currently has no defined behaviour since introduction of multiple cursors.
 
 **line**:
 
 	lnumber
 
-place cursor at the start of 'number'-th line.
+remove all cursors but one and place this cursor at the start of 'number'-th line.
 Warning: this may be expensive in large files
 
 
@@ -83,25 +84,25 @@ Warning: this may be expensive in large files
 
     e/string/
 
-check for 'string' at current cursor position, exit with error if not found.
+check for 'string' at each cursor position, exit with error if not found.
 
-expect does not move the cursor.
+expect does not move the cursors.
 
 
 **byte:**
 
     bnumber
 
-move cursor to absolute byte 'number' within file
+remove all cursors but one and move this cursor to absolute byte 'number' within file.
 
 
 **write:**
 
     w/string/
 
-write 'string' to current cursor position, this will overwrite any characters in the way
+write 'string' to current cursor positions, this will overwrite any characters in the way
 
-write moves the cursor by the number of bytes written
+write moves the cursors forward by the number of bytes written
 
 
 **truncate:**
@@ -109,6 +110,19 @@ write moves the cursor by the number of bytes written
 truncate the file at the current cursor position.
 Note that since the cursor can be inside or outside of the file, this can be used to truncate or extend files.
 
+**set/add cursor:**
+
+    cnumber
+
+adds a new cursor at byte 'number' within file.
+Any following operations will operate on this and all other cursors until they are unset.
+Note that dodo will start with one cursor at byte 0 by default.
+
+**unset cursors:**
+
+    u
+
+forget about all active cursors, including the default cursor
 
 **quit:**
 
