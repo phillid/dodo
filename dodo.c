@@ -120,6 +120,7 @@ char * slurp(FILE *file){
     size_t offset = 0;
     size_t nr = 0;
     char *buf = 0;
+    char *oldbuf = 0;
 
     if( ! file ){
         return 0;
@@ -134,9 +135,11 @@ char * slurp(FILE *file){
         offset = size;
         size += BUF_INCR;
 
+        old_buf = buf;
         buf = realloc(buf, size);
 
         if( ! buf ){
+            free(old_buf);
             return 0;
         }
     }
@@ -144,6 +147,7 @@ char * slurp(FILE *file){
     /* check for fread errors */
     if( ferror(file) ){
         puts("slurp: file read failed");
+        free(buf);
         return 0;
     }
 
